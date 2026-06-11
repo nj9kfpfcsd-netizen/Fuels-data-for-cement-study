@@ -298,7 +298,7 @@ with t_ready:
                           xaxis_title="", yaxis_title="", xaxis_range=[0, 110])
         st.plotly_chart(fig, use_container_width=True)
         
-   with cR:
+    with cR:
     section("Readiness leaderboard")
 
     d = SCd.sort_values(
