@@ -91,3 +91,76 @@ def redact_sheet(sheet_name: str, df: pd.DataFrame, secret_values: set) -> pd.Da
         for c in out.columns:
             out[c] = out[c].map(mask)
     return out
+# ============================================================================
+# AUTO DASHBOARD DATA LOADER
+# Reads all sheets from Cleaned_Dataset.xlsx
+# ============================================================================
+
+AUTO_WORKBOOK_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "Cleaned_Dataset.xlsx"
+)
+
+
+def load_auto_workbook():
+    """
+    Load every sheet from Cleaned_Dataset.xlsx.
+    Returns:
+        {
+            "Sheet1": dataframe,
+            "Sheet2": dataframe,
+            ...
+        }
+    """
+
+    sheets = pd.read_excel(
+        AUTO_WORKBOOK_PATH,
+        sheet_name=None
+    )
+
+    cleaned = {}
+
+    for sheet_name, df in sheets.items():
+
+        df = df.copy()
+
+        # Clean column names
+        df.columns = (
+            df.columns
+            .astype(str)
+            .str.strip()
+        )
+
+        # Remove completely blank rows
+        df = df.dropna(how="all")
+
+        # Remove completely blank columns
+        df = df.dropna(axis=1, how="all")
+
+        cleaned[sheet_name] = df
+
+    return cleaned
+
+
+def clean_numeric_column(series):
+    """
+    Converts text numbers into numeric values.
+
+    Examples:
+        12,500  -> 12500
+        1,200.5 -> 1200.5
+        500 MW  -> 500
+        100 MWh -> 100
+    """
+
+    return pd.to_numeric(
+        series.astype(str)
+        .str.replace(",", "", regex=False)
+        .str.replace("MW", "", regex=False)
+        .str.replace("MWh", "", regex=False)
+        .str.replace("kWh", "", regex=False)
+        .str.replace("Tonnes", "", regex=False)
+        .str.replace("tonnes", "", regex=False)
+        .str.strip(),
+        errors="coerce"
+    )
