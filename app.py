@@ -100,7 +100,22 @@ plants = S.plants_df(records)
 ready = S.readiness_df(records)
 prod_long = S.production_long(records)
 score = S.readiness_score(records)
+# Load restructured cleaned Excel workbook
+cleaned_sheets = D.load_cleaned_workbook()
 
+plant_master = cleaned_sheets["Plant_Master"]
+fuel_df = cleaned_sheets["Fuel_Data"]
+os_power_df = cleaned_sheets["OS_Power_Data"]
+re_df = cleaned_sheets["RE_Data"]
+scm_df = cleaned_sheets["SCM_Data"]
+arm_df = cleaned_sheets["ARM_Data"]
+whr_df = cleaned_sheets["WHR_Data"]
+low_carbon_df = cleaned_sheets["Low_Carbon_Product_Data"]
+pilot_df = cleaned_sheets["Pilot_Tech_Data"]
+co2_df = cleaned_sheets["CO2_Data"]
+packaging_df = cleaned_sheets["Packaging_Data"]
+decarb_df = cleaned_sheets["Decarbonization_Data"]
+raw_material_df = cleaned_sheets["Raw_Material_Consumption"]
 # Apply selection + display labels
 plants["ID"] = plants["AnonID"] if confidential else plants["Code"]
 P = plants[plants["Code"].isin(sel)].copy()
@@ -145,9 +160,12 @@ st.write("")
 # --------------------------------------------------------------------------- #
 # Tabs
 # --------------------------------------------------------------------------- #
-(t_over, t_prod, t_energy, t_ready, t_fuel, t_qual, t_edit, t_raw) = st.tabs(
+(t_over, t_prod, t_energy, t_ready, t_fuel, t_elec, t_re, t_materials,
+ t_whr, t_co2, t_cost, t_qual, t_edit, t_raw) = st.tabs(
     ["📊 Overview", "🏗️ Production", "⚡ Energy & Emissions", "🌱 Readiness",
-     "🔥 Fuels", "💬 Barriers & Enablers", "✏️ Edit Data", "📁 Raw Workbook"])
+     "🔥 Fuels", "🔌 Electricity", "☀️ RE & On-site Power", "♻️ Materials & SCMs",
+     "🏭 WHR Systems", "🌍 CO₂ & Products", "💰 Decarb Cost",
+     "💬 Barriers & Enablers", "✏️ Edit Data", "📁 Raw Workbook"])
 
 # ---- Overview -------------------------------------------------------------- #
 with t_over:
@@ -284,43 +302,298 @@ with t_ready:
         d = SCd.sort_values("Readiness score (%)", ascending=False)[["ID", "Readiness score (%)"]]
         d = d.rename(columns={"ID": "Plant"}).reset_index(drop=True)
         d.index += 1
-        st.dataframe(d.style.format({"Readiness score (%)": "{:.0f}%"})
-                     .background_gradient(subset=["Readiness score (%)"], cmap="Greens"),
-                     use_container_width=True)
-
+       st.dataframe(d.style.format({"Readiness score (%)": "{:.0f}%"}),
+    use_container_width=True)
 # ---- Fuels ----------------------------------------------------------------- #
 with t_fuel:
+    section("Fuel mix and sourcing", "Fuel use, calorific value, suppliers and origin country")
+
+    fuel_df["Fuel_Calorific_Value"] = D.clean_numeric_column(fuel_df["Fuel_Calorific_Value"])
+    fuel_df["Fuel_Annual_Quantity"] = D.clean_numeric_column(fuel_df["Fuel_Annual_Quantity"])
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        card("Fuel entries", f"{len(fuel_df)}", "records")
+    with c2:
+        card("Fuel types", f"{fuel_df['Fuel_Type'].nunique()}", "unique fuels")
+    with c3:
+        card("Suppliers", f"{fuel_df['Fuel_Supplier'].nunique()}", "unique suppliers")
+    with c4:
+        card("Countries", f"{fuel_df['Fuel_supplier_Country'].nunique()}", "source countries")
+
     cL, cR = st.columns(2)
+
     with cL:
-        section("Primary fuels", "Most used for process heat")
-        d = pd.DataFrame({"Fuel": D.PRIMARY_FUELS, "Rank": [2, 1]})
-        fig = px.bar(d.sort_values("Rank"), x="Rank", y="Fuel", orientation="h",
-                     color_discrete_sequence=[D.SLATE], text="Fuel")
-        fig.update_traces(textposition="inside", insidetextanchor="start", textfont_color="white")
-        fig.update_layout(**PLOT, height=230, showlegend=False, xaxis_visible=False, yaxis_visible=False)
+        section("Fuel type frequency", "Number of recorded fuel entries")
+        d = fuel_df["Fuel_Type"].dropna().astype(str).str.strip().value_counts().reset_index()
+        d.columns = ["Fuel_Type", "Count"]
+
+        fig = px.bar(d, x="Count", y="Fuel_Type", orientation="h",
+                     text="Count", color_discrete_sequence=[D.PRIMARY])
+        fig.update_layout(**PLOT, height=520, xaxis_title="Count", yaxis_title="Fuel type")
         st.plotly_chart(fig, use_container_width=True)
-        section("AFR / power / renewables", "Share of plants")
-        d = pd.DataFrame({"Measure": ["AFR co-processing", "On-site power", "Renewables"],
-                          "%": [(R["AFR Co-processing"] == 1).mean() * 100,
-                                (R["On-site Power Gen"] == 1).mean() * 100,
-                                (R["Renewable Procurement"] == 1).mean() * 100]})
-        fig = px.bar(d, x="Measure", y="%", color="Measure",
-                     color_discrete_sequence=[D.PRIMARY, D.BLUE, D.AMBER],
-                     text=d["%"].map(lambda v: f"{v:.0f}%"))
-        fig.update_traces(textposition="outside", cliponaxis=False)
-        fig.update_layout(**PLOT, height=300, showlegend=False, xaxis_title="",
-                          yaxis_title="", yaxis_range=[0, 110])
-        st.plotly_chart(fig, use_container_width=True)
+
     with cR:
-        section("Secondary (alternative) fuels", "Co-processed waste streams, ranked")
-        d = pd.DataFrame({"Fuel": D.SECONDARY_FUELS,
-                          "Rank": list(range(len(D.SECONDARY_FUELS), 0, -1))})
-        fig = px.bar(d.sort_values("Rank"), x="Rank", y="Fuel", orientation="h",
-                     color="Rank", color_continuous_scale=D.SEQ_GREEN, text="Fuel")
-        fig.update_traces(textposition="inside", insidetextanchor="start")
-        fig.update_layout(**PLOT, height=560, coloraxis_showscale=False,
-                          xaxis_visible=False, yaxis_visible=False)
+        section("Average calorific value by fuel", "MJ/kg")
+        d = fuel_df.dropna(subset=["Fuel_Type", "Fuel_Calorific_Value"])
+        d = d.groupby("Fuel_Type", as_index=False)["Fuel_Calorific_Value"].mean()
+        d = d.sort_values("Fuel_Calorific_Value")
+
+        fig = px.bar(d, x="Fuel_Calorific_Value", y="Fuel_Type", orientation="h",
+                     text="Fuel_Calorific_Value", color_discrete_sequence=[D.BLUE])
+        fig.update_traces(texttemplate="%{text:.2f}")
+        fig.update_layout(**PLOT, height=520, xaxis_title="Average calorific value (MJ/kg)", yaxis_title="Fuel type")
         st.plotly_chart(fig, use_container_width=True)
+
+    cL, cR = st.columns(2)
+
+    with cL:
+        section("Fuel sourcing by country", "Number of entries by country")
+        d = fuel_df["Fuel_supplier_Country"].dropna().astype(str).str.strip().value_counts().reset_index()
+        d.columns = ["Country", "Count"]
+
+        fig = px.bar(d, x="Count", y="Country", orientation="h",
+                     text="Count", color_discrete_sequence=[D.AMBER])
+        fig.update_layout(**PLOT, height=420, xaxis_title="Count", yaxis_title="Country")
+        st.plotly_chart(fig, use_container_width=True)
+
+    with cR:
+        section("Fuel annual quantity by fuel", "Total annual quantity where available")
+        d = fuel_df.dropna(subset=["Fuel_Type", "Fuel_Annual_Quantity"])
+        d = d.groupby("Fuel_Type", as_index=False)["Fuel_Annual_Quantity"].sum()
+        d = d.sort_values("Fuel_Annual_Quantity")
+
+        fig = px.bar(d, x="Fuel_Annual_Quantity", y="Fuel_Type", orientation="h",
+                     text="Fuel_Annual_Quantity", color_discrete_sequence=[D.PRIMARY_LT])
+        fig.update_traces(texttemplate="%{text:,.0f}")
+        fig.update_layout(**PLOT, height=420, xaxis_title="Annual quantity", yaxis_title="Fuel type")
+        st.plotly_chart(fig, use_container_width=True)
+
+# ---- Electricity ----------------------------------------------------------- #
+with t_elec:
+    section("Electricity consumption by section", "Plant-wise electricity use across major sections")
+
+    elec_cols = ["Electricity_Clinker", "Electricity_Grinding", "Electricity_Auxiliaries",
+                 "Electricity_Offices", "Electricity_Others"]
+
+    elec = plant_master[["Abbreviation"] + elec_cols].copy()
+
+    for col in elec_cols:
+        elec[col] = D.clean_numeric_column(elec[col])
+
+    elec_long = elec.melt(
+        id_vars="Abbreviation",
+        value_vars=elec_cols,
+        var_name="Section",
+        value_name="Electricity"
+    ).dropna()
+
+    fig = px.bar(
+        elec_long,
+        x="Abbreviation",
+        y="Electricity",
+        color="Section",
+        barmode="stack",
+        color_discrete_sequence=D.CATEGORY
+    )
+    fig.update_layout(**PLOT, height=520, xaxis_title="Plant", yaxis_title="Electricity consumption")
+    st.plotly_chart(fig, use_container_width=True)
+
+    cL, cR = st.columns(2)
+
+    with cL:
+        section("Peak electrical demand", "MW")
+        d = plant_master[["Abbreviation", "Peak_Demand_Elec"]].copy()
+        d["Peak_Demand_Elec"] = D.clean_numeric_column(d["Peak_Demand_Elec"])
+        d = d.dropna().sort_values("Peak_Demand_Elec")
+
+        fig = px.bar(d, x="Peak_Demand_Elec", y="Abbreviation", orientation="h",
+                     text="Peak_Demand_Elec", color_discrete_sequence=[D.BLUE])
+        fig.update_layout(**PLOT, height=420, xaxis_title="Peak demand (MW)", yaxis_title="Plant")
+        st.plotly_chart(fig, use_container_width=True)
+
+    with cR:
+        section("Clinker-specific electrical consumption", "Average clinker-specific electricity consumption")
+        d = plant_master[["Abbreviation", "Average_clinker_electrical_cons"]].copy()
+        d["Average_clinker_electrical_cons"] = D.clean_numeric_column(d["Average_clinker_electrical_cons"])
+        d = d.dropna().sort_values("Average_clinker_electrical_cons")
+
+        fig = px.bar(d, x="Average_clinker_electrical_cons", y="Abbreviation", orientation="h",
+                     text="Average_clinker_electrical_cons", color_discrete_sequence=[D.PRIMARY])
+        fig.update_layout(**PLOT, height=420, xaxis_title="Specific electricity consumption", yaxis_title="Plant")
+        st.plotly_chart(fig, use_container_width=True)
+
+# ---- RE & On-site Power ---------------------------------------------------- #
+with t_re:
+    section("Renewable energy and on-site power", "Capacity and generation by technology type")
+
+    re_df["RE_Capacity"] = D.clean_numeric_column(re_df["RE_Capacity"])
+    re_df["RE_Annual_Generation"] = D.clean_numeric_column(re_df["RE_Annual_Generation"])
+    os_power_df["OS_power_generation_Capacity"] = D.clean_numeric_column(os_power_df["OS_power_generation_Capacity"])
+
+    cL, cR = st.columns(2)
+
+    with cL:
+        section("Renewable energy capacity by type", "Capacity where available")
+        d = re_df.dropna(subset=["RE_Type", "RE_Capacity"])
+        d = d.groupby("RE_Type", as_index=False)["RE_Capacity"].sum().sort_values("RE_Capacity")
+
+        fig = px.bar(d, x="RE_Capacity", y="RE_Type", orientation="h",
+                     text="RE_Capacity", color_discrete_sequence=[D.PRIMARY])
+        fig.update_layout(**PLOT, height=480, xaxis_title="RE capacity", yaxis_title="RE type")
+        st.plotly_chart(fig, use_container_width=True)
+
+    with cR:
+        section("Renewable energy annual generation", "Annual generation where available")
+        d = re_df.dropna(subset=["RE_Type", "RE_Annual_Generation"])
+        d = d.groupby("RE_Type", as_index=False)["RE_Annual_Generation"].sum().sort_values("RE_Annual_Generation")
+
+        fig = px.bar(d, x="RE_Annual_Generation", y="RE_Type", orientation="h",
+                     text="RE_Annual_Generation", color_discrete_sequence=[D.BLUE])
+        fig.update_traces(texttemplate="%{text:,.0f}")
+        fig.update_layout(**PLOT, height=480, xaxis_title="Annual generation", yaxis_title="RE type")
+        st.plotly_chart(fig, use_container_width=True)
+
+    section("On-site power generation capacity", "Capacity by generation type")
+    d = os_power_df.dropna(subset=["OS_power_generation_Type", "OS_power_generation_Capacity"])
+    d = d.groupby("OS_power_generation_Type", as_index=False)["OS_power_generation_Capacity"].sum().sort_values("OS_power_generation_Capacity")
+
+    fig = px.bar(d, x="OS_power_generation_Capacity", y="OS_power_generation_Type", orientation="h",
+                 text="OS_power_generation_Capacity", color_discrete_sequence=[D.AMBER])
+    fig.update_layout(**PLOT, height=500, xaxis_title="Capacity", yaxis_title="On-site power type")
+    st.plotly_chart(fig, use_container_width=True)
+
+# ---- Materials & SCMs ------------------------------------------------------ #
+with t_materials:
+    section("SCMs and alternative raw materials", "Material substitution and consumption trends")
+
+    scm_df["SCM_Cement_Share"] = D.clean_numeric_column(scm_df["SCM_Cement_Share"])
+
+    cL, cR = st.columns(2)
+
+    with cL:
+        section("SCM type frequency", "Number of entries by SCM type")
+        d = scm_df["SCM_Type"].dropna().astype(str).str.strip().value_counts().reset_index()
+        d.columns = ["SCM_Type", "Count"]
+
+        fig = px.bar(d, x="Count", y="SCM_Type", orientation="h",
+                     text="Count", color_discrete_sequence=[D.PRIMARY])
+        fig.update_layout(**PLOT, height=460, xaxis_title="Count", yaxis_title="SCM type")
+        st.plotly_chart(fig, use_container_width=True)
+
+    with cR:
+        section("Average SCM share in cement", "Share of cement where available")
+        d = scm_df.dropna(subset=["SCM_Type", "SCM_Cement_Share"])
+        d = d.groupby("SCM_Type", as_index=False)["SCM_Cement_Share"].mean().sort_values("SCM_Cement_Share")
+
+        fig = px.bar(d, x="SCM_Cement_Share", y="SCM_Type", orientation="h",
+                     text="SCM_Cement_Share", color_discrete_sequence=[D.BLUE])
+        fig.update_layout(**PLOT, height=460, xaxis_title="Average share", yaxis_title="SCM type")
+        st.plotly_chart(fig, use_container_width=True)
+
+    section("Alternative raw material quantity trend", "2022-23 to 2024-25")
+
+    for col in ["ARM_quantity_2022_23", "ARM_quantity_2023_24", "ARM_quantity_2024_25"]:
+        arm_df[col] = D.clean_numeric_column(arm_df[col])
+
+    arm_long = arm_df.melt(
+        id_vars=["Abbreviation", "ARM"],
+        value_vars=["ARM_quantity_2022_23", "ARM_quantity_2023_24", "ARM_quantity_2024_25"],
+        var_name="Year",
+        value_name="Quantity"
+    ).dropna()
+
+    arm_long["Year"] = arm_long["Year"].replace({
+        "ARM_quantity_2022_23": "2022-23",
+        "ARM_quantity_2023_24": "2023-24",
+        "ARM_quantity_2024_25": "2024-25"
+    })
+
+    d = arm_long.groupby(["Year", "ARM"], as_index=False)["Quantity"].sum()
+
+    fig = px.bar(d, x="Year", y="Quantity", color="ARM",
+                 barmode="group", color_discrete_sequence=D.CATEGORY)
+    fig.update_layout(**PLOT, height=520, xaxis_title="Year", yaxis_title="Quantity")
+    st.plotly_chart(fig, use_container_width=True)
+
+# ---- WHR Systems ----------------------------------------------------------- #
+with t_whr:
+    section("Waste Heat Recovery systems", "Technology, capacity and annual generation")
+
+    whr_df["WHR_Technology_Capacity"] = D.clean_numeric_column(whr_df["WHR_Technology_Capacity"])
+    whr_df["WHR_Annual_Generation"] = D.clean_numeric_column(whr_df["WHR_Annual_Generation"])
+
+    cL, cR = st.columns(2)
+
+    with cL:
+        section("WHR capacity by technology", "MW")
+        d = whr_df.dropna(subset=["WHR_Technology", "WHR_Technology_Capacity"])
+        d = d.groupby("WHR_Technology", as_index=False)["WHR_Technology_Capacity"].sum().sort_values("WHR_Technology_Capacity")
+
+        fig = px.bar(d, x="WHR_Technology_Capacity", y="WHR_Technology", orientation="h",
+                     text="WHR_Technology_Capacity", color_discrete_sequence=[D.PRIMARY])
+        fig.update_layout(**PLOT, height=450, xaxis_title="Capacity (MW)", yaxis_title="WHR technology")
+        st.plotly_chart(fig, use_container_width=True)
+
+    with cR:
+        section("WHR annual generation", "MWh")
+        d = whr_df.dropna(subset=["WHR_Technology", "WHR_Annual_Generation"])
+        d = d.groupby("WHR_Technology", as_index=False)["WHR_Annual_Generation"].sum().sort_values("WHR_Annual_Generation")
+
+        fig = px.bar(d, x="WHR_Annual_Generation", y="WHR_Technology", orientation="h",
+                     text="WHR_Annual_Generation", color_discrete_sequence=[D.BLUE])
+        fig.update_traces(texttemplate="%{text:,.0f}")
+        fig.update_layout(**PLOT, height=450, xaxis_title="Annual generation (MWh)", yaxis_title="WHR technology")
+        st.plotly_chart(fig, use_container_width=True)
+
+# ---- CO2 & Products -------------------------------------------------------- #
+with t_co2:
+    section("CO₂ emissions and low-carbon products", "Emission sources and product-level CO₂ intensity")
+
+    co2_df["CO2_emissions_quantity"] = D.clean_numeric_column(co2_df["CO2_emissions_quantity"])
+    low_carbon_df["low_carbon_Product_Estimated_CO2"] = D.clean_numeric_column(low_carbon_df["low_carbon_Product_Estimated_CO2"])
+
+    cL, cR = st.columns(2)
+
+    with cL:
+        section("CO₂ emissions by source", "kg CO₂ where available")
+        d = co2_df.dropna(subset=["Annual_CO2_Emission_Source", "CO2_emissions_quantity"])
+        d = d.groupby("Annual_CO2_Emission_Source", as_index=False)["CO2_emissions_quantity"].sum().sort_values("CO2_emissions_quantity")
+
+        fig = px.bar(d, x="CO2_emissions_quantity", y="Annual_CO2_Emission_Source", orientation="h",
+                     text="CO2_emissions_quantity", color_discrete_sequence=[D.RED])
+        fig.update_traces(texttemplate="%{text:,.0f}")
+        fig.update_layout(**PLOT, height=480, xaxis_title="CO₂ emissions (kg)", yaxis_title="Emission source")
+        st.plotly_chart(fig, use_container_width=True)
+
+    with cR:
+        section("Low-carbon product CO₂ intensity", "Estimated CO₂ intensity where available")
+        d = low_carbon_df.dropna(subset=["low_carbon_Product_Name", "low_carbon_Product_Estimated_CO2"])
+        d = d.groupby("low_carbon_Product_Name", as_index=False)["low_carbon_Product_Estimated_CO2"].mean().sort_values("low_carbon_Product_Estimated_CO2")
+
+        fig = px.bar(d, x="low_carbon_Product_Estimated_CO2", y="low_carbon_Product_Name", orientation="h",
+                     text="low_carbon_Product_Estimated_CO2", color_discrete_sequence=[D.PRIMARY])
+        fig.update_layout(**PLOT, height=480, xaxis_title="Estimated CO₂ intensity", yaxis_title="Low-carbon product")
+        st.plotly_chart(fig, use_container_width=True)
+
+# ---- Decarbonization Cost -------------------------------------------------- #
+with t_cost:
+    section("Capital cost for decarbonization technologies", "Cost by technology where available")
+
+    decarb_df["decarbonization_technology_Cost"] = D.clean_numeric_column(decarb_df["decarbonization_technology_Cost"])
+
+    d = decarb_df.dropna(subset=["decarbonization_technology", "decarbonization_technology_Cost"])
+    d = d.groupby("decarbonization_technology", as_index=False)["decarbonization_technology_Cost"].sum().sort_values("decarbonization_technology_Cost")
+
+    fig = px.bar(d, x="decarbonization_technology_Cost", y="decarbonization_technology", orientation="h",
+                 text="decarbonization_technology_Cost", color_discrete_sequence=[D.AMBER])
+    fig.update_traces(texttemplate="%{text:,.2f}")
+    fig.update_layout(**PLOT, height=520, xaxis_title="Cost (crores)", yaxis_title="Technology")
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.dataframe(decarb_df, use_container_width=True)
+
+
 
 # ---- Qualitative ----------------------------------------------------------- #
 with t_qual:
