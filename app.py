@@ -299,25 +299,25 @@ with t_ready:
         st.plotly_chart(fig, use_container_width=True)
         
     with cR:
-    section("Readiness leaderboard")
+        section("Readiness leaderboard")
 
-    d = SCd.sort_values(
-        "Readiness score (%)",
-        ascending=False
-    )[["ID", "Readiness score (%)"]]
+        d = SCd.sort_values(
+            "Readiness score (%)",
+            ascending=False
+        )[["ID", "Readiness score (%)"]]
 
-    d = d.rename(
-        columns={"ID": "Plant"}
-    ).reset_index(drop=True)
+        d = d.rename(
+            columns={"ID": "Plant"}
+        ).reset_index(drop=True)
 
-    d.index += 1
+        d.index += 1
 
-    st.dataframe(
-        d.style.format(
-            {"Readiness score (%)": "{:.0f}%"}
-        ),
-        use_container_width=True
-    )
+        st.dataframe(
+            d.style.format(
+                {"Readiness score (%)": "{:.0f}%"}
+            ),
+            use_container_width=True
+        )
 # ---- Fuels ----------------------------------------------------------------- #
 with t_fuel:
     section("Fuel mix and sourcing", "Fuel use, calorific value, suppliers and origin country")
