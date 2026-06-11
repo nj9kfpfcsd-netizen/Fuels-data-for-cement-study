@@ -91,3 +91,75 @@ def redact_sheet(sheet_name: str, df: pd.DataFrame, secret_values: set) -> pd.Da
         for c in out.columns:
             out[c] = out[c].map(mask)
     return out
+# ============================================================================
+# RESTRUCTURED CLEANED DATASET LOADER
+# Reads Cleaned_Dataset.xlsx after restructuring into multiple sheets
+# ============================================================================
+
+CLEANED_WORKBOOK_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "Cleaned_Dataset.xlsx"
+)
+
+
+def clean_numeric_column(series):
+    """
+    Converts text-based numeric values into numbers.
+    Keeps invalid/blank values as NaN.
+    """
+    return pd.to_numeric(
+        series.astype(str)
+        .str.replace(",", "", regex=False)
+        .str.replace("%", "", regex=False)
+        .str.replace("MW", "", regex=False)
+        .str.replace("MWh", "", regex=False)
+        .str.replace("KWh", "", regex=False)
+        .str.replace("kWh", "", regex=False)
+        .str.replace("Kg", "", regex=False)
+        .str.replace("kg", "", regex=False)
+        .str.replace("Crores", "", regex=False)
+        .str.replace("crores", "", regex=False)
+        .str.strip(),
+        errors="coerce"
+    )
+
+
+def load_cleaned_workbook():
+    """
+    Loads all sheets from the restructured Cleaned_Dataset.xlsx file.
+    Expected sheets:
+        Plant_Master
+        Fuel_Data
+        OS_Power_Data
+        RE_Data
+        SCM_Data
+        ARM_Data
+        WHR_Data
+        Low_Carbon_Product_Data
+        Pilot_Tech_Data
+        CO2_Data
+        Packaging_Data
+        Decarbonization_Data
+        Raw_Material_Consumption
+    """
+
+    sheets = pd.read_excel(
+        CLEANED_WORKBOOK_PATH,
+        sheet_name=None
+    )
+
+    cleaned = {}
+
+    for sheet_name, df in sheets.items():
+        df = df.copy()
+
+        # Remove leading/trailing spaces from column names
+        df.columns = df.columns.astype(str).str.strip()
+
+        # Remove fully blank rows and columns
+        df = df.dropna(how="all")
+        df = df.dropna(axis=1, how="all")
+
+        cleaned[sheet_name] = df
+
+    return cleaned
