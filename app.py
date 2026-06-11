@@ -297,13 +297,27 @@ with t_ready:
         fig.update_layout(**PLOT, height=460, coloraxis_showscale=False,
                           xaxis_title="", yaxis_title="", xaxis_range=[0, 110])
         st.plotly_chart(fig, use_container_width=True)
-    with cR:
-        section("Readiness leaderboard")
-        d = SCd.sort_values("Readiness score (%)", ascending=False)[["ID", "Readiness score (%)"]]
-        d = d.rename(columns={"ID": "Plant"}).reset_index(drop=True)
-        d.index += 1
-       st.dataframe(d.style.format({"Readiness score (%)": "{:.0f}%"}),
-    use_container_width=True)
+        
+   with cR:
+    section("Readiness leaderboard")
+
+    d = SCd.sort_values(
+        "Readiness score (%)",
+        ascending=False
+    )[["ID", "Readiness score (%)"]]
+
+    d = d.rename(
+        columns={"ID": "Plant"}
+    ).reset_index(drop=True)
+
+    d.index += 1
+
+    st.dataframe(
+        d.style.format(
+            {"Readiness score (%)": "{:.0f}%"}
+        ),
+        use_container_width=True
+    )
 # ---- Fuels ----------------------------------------------------------------- #
 with t_fuel:
     section("Fuel mix and sourcing", "Fuel use, calorific value, suppliers and origin country")
