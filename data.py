@@ -163,3 +163,65 @@ def load_cleaned_workbook():
         cleaned[sheet_name] = df
 
     return cleaned
+# ============================================================================
+# RESTRUCTURED CLEANED DATASET LOADER
+# ============================================================================
+
+CLEANED_WORKBOOK_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "Cleaned_Dataset.xlsx"
+)
+
+
+def clean_numeric_column(series):
+    return pd.to_numeric(
+        series.astype(str)
+        .str.replace(",", "", regex=False)
+        .str.replace("%", "", regex=False)
+        .str.replace("MW", "", regex=False)
+        .str.replace("MWh", "", regex=False)
+        .str.replace("KWh", "", regex=False)
+        .str.replace("kWh", "", regex=False)
+        .str.replace("Kg", "", regex=False)
+        .str.replace("kg", "", regex=False)
+        .str.replace("-", "", regex=False)
+        .str.strip(),
+        errors="coerce"
+    )
+
+
+def load_cleaned_workbook():
+    sheets = pd.read_excel(CLEANED_WORKBOOK_PATH, sheet_name=None)
+    cleaned = {}
+
+    for sheet_name, df in sheets.items():
+        df = df.copy()
+        df.columns = df.columns.astype(str).str.strip()
+        df = df.dropna(how="all")
+        df = df.dropna(axis=1, how="all")
+        cleaned[sheet_name] = df
+
+    # Rename changed Plant_Master columns to match app.py
+    if "Plant_Master" in cleaned:
+        cleaned["Plant_Master"] = cleaned["Plant_Master"].rename(columns={
+            "Kiln_Temp_avg": "Kiln_Combustion_Temp",
+            "Electricity Consumption in Clinker": "Electricity_Clinker",
+            "Electricity Consumption in Grinding Lines": "Electricity_Grinding",
+            "Electricity Consumption in Auxiliaries": "Electricity_Auxiliaries",
+            "Electricity Consumption in Offices": "Electricity_Offices",
+            "Electricity Consumption in Others": "Electricity_Others",
+        })
+
+    # Rename changed RE column
+    if "RE_Data" in cleaned:
+        cleaned["RE_Data"] = cleaned["RE_Data"].rename(columns={
+            "RE_Capacity_MWh": "RE_Capacity"
+        })
+
+    # Rename changed low-carbon product CO2 column
+    if "Low_Carbon_Product_Data" in cleaned:
+        cleaned["Low_Carbon_Product_Data"] = cleaned["Low_Carbon_Product_Data"].rename(columns={
+            "low_carbon_Product_Estimated_CO2_Kg": "low_carbon_Product_Estimated_CO2"
+        })
+
+    return cleaned
