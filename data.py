@@ -225,3 +225,7 @@ def load_cleaned_workbook():
         })
 
     return cleaned
+CLEANED_WORKBOOK_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "Cleaned_Dataset.xlsx"
+)
