@@ -100,19 +100,35 @@ plants = S.plants_df(records)
 ready = S.readiness_df(records)
 prod_long = S.production_long(records)
 score = S.readiness_score(records)
+
 # Load restructured cleaned Excel workbook
 cleaned_sheets = D.load_cleaned_workbook()
 
-plant_master = cleaned_sheets["Plant_Master"]
-fuel_df = cleaned_sheets["Fuel_Data"]
-os_power_df = cleaned_sheets["OS_Power_Data"]
-re_df = cleaned_sheets["RE_Data"]
-scm_df = cleaned_sheets["SCM_Data"]
-arm_df = cleaned_sheets["ARM_Data"]
-whr_df = cleaned_sheets["WHR_Data"]
-low_carbon_df = cleaned_sheets["Low_Carbon_Product_Data"]
-pilot_df = cleaned_sheets["Pilot_Tech_Data"]
-raw_material_df = cleaned_sheets["Raw_Material_Consumption"]
+plant_master = cleaned_sheets.get("Plant_Master", pd.DataFrame())
+fuel_df = cleaned_sheets.get("Fuel_Data", pd.DataFrame())
+os_power_df = cleaned_sheets.get("OS_Power_Data", pd.DataFrame())
+re_df = cleaned_sheets.get("RE_Data", pd.DataFrame())
+scm_df = cleaned_sheets.get("SCM_Data", pd.DataFrame())
+arm_df = cleaned_sheets.get("ARM_Data", pd.DataFrame())
+whr_df = cleaned_sheets.get("WHR_Data", pd.DataFrame())
+low_carbon_df = cleaned_sheets.get("Low_Carbon_Product_Data", pd.DataFrame())
+pilot_df = cleaned_sheets.get("Pilot_Tech_Data", pd.DataFrame())
+raw_material_df = cleaned_sheets.get("Raw_Material_Consumption", pd.DataFrame())
+
+for df in [plant_master, fuel_df, os_power_df, re_df, scm_df, arm_df, whr_df, low_carbon_df, pilot_df, raw_material_df]:
+    if not df.empty:
+        df.columns = df.columns.astype(str).str.strip()
+
+plant_master = plant_master.rename(columns={
+    "Kiln_Temp_avg": "Kiln_Combustion_Temp",
+    "Electricity Consumption in Clinker": "Electricity_Clinker",
+    "Electricity Consumption in Grinding Lines": "Electricity_Grinding",
+    "Electricity Consumption in Auxiliaries": "Electricity_Auxiliaries",
+    "Electricity Consumption in Offices": "Electricity_Offices",
+    "Electricity Consumption in Others": "Electricity_Others",
+    "Packaging_weights(KG)": "Packaging_weights_KG"
+})
+
 # Apply selection + display labels
 plants["ID"] = plants["AnonID"] if confidential else plants["Code"]
 P = plants[plants["Code"].isin(sel)].copy()
@@ -122,7 +138,6 @@ PL = prod_long[prod_long["Code"].isin(sel)].copy()
 PL["ID"] = PL["Code"].map(lab)
 SCd = score[score["Code"].isin(sel)].copy()
 SCd["ID"] = SCd["Code"].map(lab)
-
 # --------------------------------------------------------------------------- #
 # Hero
 # --------------------------------------------------------------------------- #
