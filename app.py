@@ -128,7 +128,7 @@ plant_master = plant_master.rename(columns={
     "Electricity Consumption in Others": "Electricity_Others",
     "Packaging_weights(KG)": "Packaging_weights_KG"
 })
-
+co2_df = plant_master
 # Apply selection + display labels
 plants["ID"] = plants["AnonID"] if confidential else plants["Code"]
 P = plants[plants["Code"].isin(sel)].copy()
