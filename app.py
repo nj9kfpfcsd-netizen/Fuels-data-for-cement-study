@@ -6,6 +6,7 @@ Run with:
     streamlit run app.py
 """
 
+import os
 import json
 import numpy as np
 import pandas as pd
@@ -66,7 +67,7 @@ st.markdown(
         border-radius: 20px;
         padding: 28px 32px;
         color: #fff;
-        box-shadow: 0 10px 30px rgba(31, 122, 92, .22);
+        box-shadow: 0 10px 30px rgba(31,122,92,.22);
     }
 
     .hero h1 {
@@ -249,6 +250,192 @@ def section(title, subtitle=""):
         )
 
 
+def load_all_cleaned_sheets():
+    """
+    Load the cleaned workbook using the existing data.py loader.
+
+    The current data.py may only return a predefined set of sheets.
+    This function additionally searches for the cleaned workbook and,
+    when necessary, loads all worksheets so that the dedicated
+    'SCM VS CF' sheet is available to app.py.
+    """
+
+    try:
+        sheets = D.load_cleaned_workbook()
+    except Exception:
+        sheets = {}
+
+    if sheets is None:
+        sheets = {}
+
+    # If the required sheet already exists, no further action is needed.
+    if "SCM VS CF" in sheets:
+        return sheets
+
+    # ------------------------------------------------------------------ #
+    # Candidate workbook paths
+    # ------------------------------------------------------------------ #
+
+    candidates = []
+
+    # Possible path variables already defined in data.py
+    possible_attrs = [
+        "CLEANED_WORKBOOK_PATH",
+        "CLEANED_WORKBOOK",
+        "CLEANED_DATASET_PATH",
+        "CLEANED_DATASET_FILE",
+        "CLEANED_FILE",
+        "CLEANED_XLSX"
+    ]
+
+    for attr in possible_attrs:
+
+        if hasattr(D, attr):
+
+            try:
+                value = getattr(D, attr)
+
+                if isinstance(value, str):
+                    candidates.append(value)
+
+            except Exception:
+                pass
+
+    # Common filenames
+    common_names = [
+        "Cleaned_Dataset.xlsx",
+        "Cleaned_Dataset.xlsm",
+        "cleaned_Dataset.xlsx",
+        "cleaned_dataset.xlsx",
+        "Cleaned Dataset.xlsx"
+    ]
+
+    for name in common_names:
+        candidates.append(name)
+
+    # Search current directory and subdirectories
+    search_roots = [
+        os.getcwd(),
+        os.path.dirname(os.path.abspath(__file__))
+    ]
+
+    for root in search_roots:
+
+        for filename in common_names:
+
+            candidates.append(
+                os.path.join(
+                    root,
+                    filename
+                )
+            )
+
+        try:
+
+            for current_root, dirs, files in os.walk(root):
+
+                # Avoid excessively deep scans
+                dirs[:] = [
+                    d for d in dirs
+                    if d not in {
+                        ".git",
+                        ".venv",
+                        "venv",
+                        "__pycache__",
+                        "node_modules"
+                    }
+                ]
+
+                for filename in files:
+
+                    if filename.lower() in {
+                        x.lower()
+                        for x in common_names
+                    }:
+
+                        candidates.append(
+                            os.path.join(
+                                current_root,
+                                filename
+                            )
+                        )
+
+        except Exception:
+            pass
+
+    # Remove duplicates while preserving order
+    unique_candidates = []
+
+    for path in candidates:
+
+        if path not in unique_candidates:
+            unique_candidates.append(path)
+
+    # ------------------------------------------------------------------ #
+    # Try to load all worksheets
+    # ------------------------------------------------------------------ #
+
+    for workbook_path in unique_candidates:
+
+        try:
+
+            if not os.path.isfile(workbook_path):
+                continue
+
+            all_sheets = pd.read_excel(
+                workbook_path,
+                sheet_name=None
+            )
+
+            if isinstance(all_sheets, dict):
+
+                for sheet_name, sheet_df in all_sheets.items():
+
+                    if sheet_name not in sheets:
+                        sheets[sheet_name] = sheet_df
+
+                if any(
+                    str(name).strip().upper() == "SCM VS CF"
+                    for name in sheets.keys()
+                ):
+                    break
+
+        except Exception:
+            continue
+
+    return sheets
+
+
+def find_sheet_case_insensitive(sheets, target_name):
+    """
+    Find a worksheet regardless of capitalization, spaces,
+    underscores or hyphens.
+    """
+
+    target = (
+        str(target_name)
+        .strip()
+        .upper()
+        .replace("_", " ")
+        .replace("-", " ")
+    )
+
+    for name in sheets.keys():
+
+        current = (
+            str(name)
+            .strip()
+            .upper()
+            .replace("_", " ")
+            .replace("-", " ")
+        )
+
+        if current == target:
+            return sheets[name]
+
+    return pd.DataFrame()
+
+
 # --------------------------------------------------------------------------- #
 # Sidebar
 # --------------------------------------------------------------------------- #
@@ -274,7 +461,10 @@ with st.sidebar:
 
     st.divider()
 
-    all_codes = [r["code"] for r in records]
+    all_codes = [
+        r["code"]
+        for r in records
+    ]
 
     label_for = {
         r["code"]: (
@@ -287,8 +477,14 @@ with st.sidebar:
 
     pick_labels = st.multiselect(
         "Filter plants",
-        options=[label_for[c] for c in all_codes],
-        default=[label_for[c] for c in all_codes]
+        options=[
+            label_for[c]
+            for c in all_codes
+        ],
+        default=[
+            label_for[c]
+            for c in all_codes
+        ]
     )
 
     inv_label = {
@@ -320,10 +516,11 @@ score = S.readiness_score(records)
 
 
 # --------------------------------------------------------------------------- #
-# Load cleaned Excel workbook
+# Load cleaned workbook
 # --------------------------------------------------------------------------- #
 
-cleaned_sheets = D.load_cleaned_workbook()
+cleaned_sheets = load_all_cleaned_sheets()
+
 
 plant_master = cleaned_sheets.get(
     "Plant_Master",
@@ -394,6 +591,7 @@ for df in [
 ]:
 
     if not df.empty:
+
         df.columns = (
             df.columns
             .astype(str)
@@ -423,7 +621,7 @@ decarb_df = plant_master
 
 
 # --------------------------------------------------------------------------- #
-# Apply plant selection + display labels
+# Apply selection + display labels
 # --------------------------------------------------------------------------- #
 
 plants["ID"] = (
@@ -447,7 +645,11 @@ lab = dict(
 
 R = (
     ready.loc[
-        [c for c in ready.index if c in sel]
+        [
+            c
+            for c in ready.index
+            if c in sel
+        ]
     ]
     .rename(index=lab)
 )
@@ -475,6 +677,7 @@ st.markdown(
     f"""
     <div class="hero">
         <h1>Decarbonisation Pathways in the Cement Sector</h1>
+
         <p>
             Capacity, energy intensity, fuels, emissions readiness
             & qualitative insights.
@@ -506,8 +709,8 @@ if confidential:
     st.markdown(
         """
         <div class="conf-banner">
-            🔒 Confidential mode is ON — plant names shown as
-            P01, P02… and all contact details are hidden/redacted.
+            🔒 Confidential mode is ON — plant names shown as P01, P02…
+            and all contact details are hidden/redacted.
         </div>
         """,
         unsafe_allow_html=True
@@ -523,11 +726,15 @@ total_cap = (
 )
 
 avg_util = (
-    P["Capacity utilisation"].mean(skipna=True)
+    P["Capacity utilisation"].mean(
+        skipna=True
+    )
 )
 
 avg_cf = (
-    P["Clinker factor"].mean(skipna=True)
+    P["Clinker factor"].mean(
+        skipna=True
+    )
 )
 
 whr_share = (
@@ -539,39 +746,53 @@ whr_share = (
 
 c1, c2, c3, c4, c5 = st.columns(5)
 
+
 with c1:
+
     card(
         "Plants",
         f"{len(P)}",
         "in selection"
     )
 
+
 with c2:
+
     card(
         "Installed capacity",
         f"{total_cap / 1e6:.1f} Mt",
         "clinker / year"
     )
 
+
 with c3:
+
     card(
         "Capacity utilisation",
-        f"{avg_util * 100:.0f}%"
-        if pd.notna(avg_util)
-        else "—",
+        (
+            f"{avg_util * 100:.0f}%"
+            if pd.notna(avg_util)
+            else "—"
+        ),
         "avg, last 3 yrs"
     )
 
+
 with c4:
+
     card(
         "Clinker factor",
-        f"{avg_cf:.2f}"
-        if pd.notna(avg_cf)
-        else "—",
+        (
+            f"{avg_cf:.2f}"
+            if pd.notna(avg_cf)
+            else "—"
+        ),
         "avg (lower better)"
     )
 
+
 with c5:
+
     card(
         "WHR adoption",
         f"{whr_share:.0f}%",
@@ -673,6 +894,7 @@ with t_over:
             use_container_width=True
         )
 
+
     with cR:
 
         section(
@@ -717,7 +939,9 @@ with t_over:
             use_container_width=True
         )
 
+
     section("Plant directory")
+
 
     if confidential:
 
@@ -757,6 +981,7 @@ with t_over:
                 "Thermal energy (kcal/kg)"
             ]
         ]
+
 
     st.dataframe(
         show.style.format(
@@ -806,7 +1031,9 @@ with t_prod:
         use_container_width=True
     )
 
+
     cL, cR = st.columns(2)
+
 
     with cL:
 
@@ -856,6 +1083,7 @@ with t_prod:
             use_container_width=True
         )
 
+
     with cR:
 
         section(
@@ -865,9 +1093,13 @@ with t_prod:
 
         d = (
             P.dropna(
-                subset=["Capacity utilisation"]
+                subset=[
+                    "Capacity utilisation"
+                ]
             )
-            .sort_values("Capacity utilisation")
+            .sort_values(
+                "Capacity utilisation"
+            )
         )
 
         fig = px.bar(
@@ -920,6 +1152,7 @@ with t_energy:
         "#DC2626"
     ]
 
+
     with cL:
 
         section(
@@ -929,7 +1162,9 @@ with t_energy:
 
         d = (
             P.dropna(
-                subset=["Thermal energy (kcal/kg)"]
+                subset=[
+                    "Thermal energy (kcal/kg)"
+                ]
             )
             .sort_values(
                 "Thermal energy (kcal/kg)"
@@ -978,6 +1213,7 @@ with t_energy:
             use_container_width=True
         )
 
+
     with cR:
 
         section(
@@ -987,7 +1223,9 @@ with t_energy:
 
         d = (
             P.dropna(
-                subset=["Clinker factor"]
+                subset=[
+                    "Clinker factor"
+                ]
             )
             .sort_values(
                 "Clinker factor"
@@ -1025,6 +1263,7 @@ with t_energy:
             fig,
             use_container_width=True
         )
+
 
     section(
         "Energy intensity vs. clinker factor",
@@ -1135,7 +1374,9 @@ with t_ready:
         use_container_width=True
     )
 
+
     cL, cR = st.columns(2)
+
 
     with cL:
 
@@ -1188,19 +1429,22 @@ with t_ready:
             use_container_width=True
         )
 
+
     with cR:
 
         section(
             "Readiness leaderboard"
         )
 
-        d = SCd.sort_values(
-            "Readiness score (%)",
-            ascending=False
-        )[[
-            "ID",
-            "Readiness score (%)"
-        ]]
+        d = (
+            SCd.sort_values(
+                "Readiness score (%)",
+                ascending=False
+            )[[
+                "ID",
+                "Readiness score (%)"
+            ]]
+        )
 
         d = d.rename(
             columns={
@@ -1231,45 +1475,59 @@ with t_fuel:
         "Fuel use, calorific value, suppliers and origin country"
     )
 
-    fuel_df["Fuel_Calorific_Value"] = D.clean_numeric_column(
-        fuel_df["Fuel_Calorific_Value"]
+    fuel_df["Fuel_Calorific_Value"] = (
+        D.clean_numeric_column(
+            fuel_df["Fuel_Calorific_Value"]
+        )
     )
 
-    fuel_df["Fuel_Annual_Quantity"] = D.clean_numeric_column(
-        fuel_df["Fuel_Annual_Quantity"]
+    fuel_df["Fuel_Annual_Quantity"] = (
+        D.clean_numeric_column(
+            fuel_df["Fuel_Annual_Quantity"]
+        )
     )
 
     c1, c2, c3, c4 = st.columns(4)
 
+
     with c1:
+
         card(
             "Fuel entries",
             f"{len(fuel_df)}",
             "records"
         )
 
+
     with c2:
+
         card(
             "Fuel types",
             f"{fuel_df['Fuel_Type'].nunique()}",
             "unique fuels"
         )
 
+
     with c3:
+
         card(
             "Suppliers",
             f"{fuel_df['Fuel_Supplier'].nunique()}",
             "unique suppliers"
         )
 
+
     with c4:
+
         card(
             "Countries",
             f"{fuel_df['Fuel_supplier_Country'].nunique()}",
             "source countries"
         )
 
+
     cL, cR = st.columns(2)
+
 
     with cL:
 
@@ -1314,6 +1572,7 @@ with t_fuel:
             fig,
             use_container_width=True
         )
+
 
     with cR:
 
@@ -1367,7 +1626,9 @@ with t_fuel:
             use_container_width=True
         )
 
+
     cL, cR = st.columns(2)
+
 
     with cL:
 
@@ -1377,7 +1638,9 @@ with t_fuel:
         )
 
         d = (
-            fuel_df["Fuel_supplier_Country"]
+            fuel_df[
+                "Fuel_supplier_Country"
+            ]
             .dropna()
             .astype(str)
             .str.strip()
@@ -1412,6 +1675,7 @@ with t_fuel:
             fig,
             use_container_width=True
         )
+
 
     with cR:
 
@@ -1491,8 +1755,10 @@ with t_elec:
 
     for col in elec_cols:
 
-        elec[col] = D.clean_numeric_column(
-            elec[col]
+        elec[col] = (
+            D.clean_numeric_column(
+                elec[col]
+            )
         )
 
     elec_long = elec.melt(
@@ -1523,7 +1789,9 @@ with t_elec:
         use_container_width=True
     )
 
+
     cL, cR = st.columns(2)
+
 
     with cL:
 
@@ -1539,12 +1807,17 @@ with t_elec:
             ]
         ].copy()
 
-        d["Peak_Demand_Elec"] = D.clean_numeric_column(
-            d["Peak_Demand_Elec"]
+        d["Peak_Demand_Elec"] = (
+            D.clean_numeric_column(
+                d["Peak_Demand_Elec"]
+            )
         )
 
-        d = d.dropna().sort_values(
-            "Peak_Demand_Elec"
+        d = (
+            d.dropna()
+            .sort_values(
+                "Peak_Demand_Elec"
+            )
         )
 
         fig = px.bar(
@@ -1570,6 +1843,7 @@ with t_elec:
             use_container_width=True
         )
 
+
     with cR:
 
         section(
@@ -1587,11 +1861,16 @@ with t_elec:
         d[
             "Average_clinker_electrical_cons"
         ] = D.clean_numeric_column(
-            d["Average_clinker_electrical_cons"]
+            d[
+                "Average_clinker_electrical_cons"
+            ]
         )
 
-        d = d.dropna().sort_values(
-            "Average_clinker_electrical_cons"
+        d = (
+            d.dropna()
+            .sort_values(
+                "Average_clinker_electrical_cons"
+            )
         )
 
         fig = px.bar(
@@ -1629,12 +1908,16 @@ with t_re:
         "Capacity and generation by technology type"
     )
 
-    re_df["RE_Capacity"] = D.clean_numeric_column(
-        re_df["RE_Capacity"]
+    re_df["RE_Capacity"] = (
+        D.clean_numeric_column(
+            re_df["RE_Capacity"]
+        )
     )
 
-    re_df["RE_Annual_Generation"] = D.clean_numeric_column(
-        re_df["RE_Annual_Generation"]
+    re_df["RE_Annual_Generation"] = (
+        D.clean_numeric_column(
+            re_df["RE_Annual_Generation"]
+        )
     )
 
     os_power_df[
@@ -1646,6 +1929,7 @@ with t_re:
     )
 
     cL, cR = st.columns(2)
+
 
     with cL:
 
@@ -1667,7 +1951,9 @@ with t_re:
                 as_index=False
             )["RE_Capacity"]
             .sum()
-            .sort_values("RE_Capacity")
+            .sort_values(
+                "RE_Capacity"
+            )
         )
 
         fig = px.bar(
@@ -1692,6 +1978,7 @@ with t_re:
             fig,
             use_container_width=True
         )
+
 
     with cR:
 
@@ -1744,6 +2031,7 @@ with t_re:
             fig,
             use_container_width=True
         )
+
 
     section(
         "On-site power generation capacity",
@@ -1804,20 +2092,18 @@ with t_materials:
     )
 
     # ----------------------------------------------------------------------- #
-    # Create working copy of SCM dataframe
+    # Existing SCM dataframe
     # ----------------------------------------------------------------------- #
 
     scm_plot = scm_df.copy()
 
-    scm_plot.columns = (
-        scm_plot.columns
-        .astype(str)
-        .str.strip()
-    )
+    if not scm_plot.empty:
 
-    # ----------------------------------------------------------------------- #
-    # Clean SCM cement share
-    # ----------------------------------------------------------------------- #
+        scm_plot.columns = (
+            scm_plot.columns
+            .astype(str)
+            .str.strip()
+        )
 
     if "SCM_Cement_Share" in scm_plot.columns:
 
@@ -1827,16 +2113,13 @@ with t_materials:
             )
         )
 
-    else:
-
-        scm_plot["SCM_Cement_Share"] = np.nan
-
 
     # ----------------------------------------------------------------------- #
-    # SCM TYPE FREQUENCY + AVERAGE SCM SHARE
+    # Existing SCM charts
     # ----------------------------------------------------------------------- #
 
     cL, cR = st.columns(2)
+
 
     with cL:
 
@@ -1845,10 +2128,15 @@ with t_materials:
             "Number of entries by SCM type"
         )
 
-        if "SCM_Type" in scm_plot.columns:
+        if (
+            not scm_plot.empty
+            and "SCM_Type" in scm_plot.columns
+        ):
 
             d = (
-                scm_plot["SCM_Type"]
+                scm_plot[
+                    "SCM_Type"
+                ]
                 .dropna()
                 .astype(str)
                 .str.strip()
@@ -1887,8 +2175,9 @@ with t_materials:
         else:
 
             st.info(
-                "SCM_Type column not found."
+                "SCM type data are not available."
             )
+
 
     with cR:
 
@@ -1897,317 +2186,253 @@ with t_materials:
             "Average share of each SCM type in cement"
         )
 
-        d = scm_plot.dropna(
-            subset=[
-                "SCM_Type",
-                "SCM_Cement_Share"
-            ]
-        ).copy()
-
-        d = (
-            d.groupby(
-                "SCM_Type",
-                as_index=False
-            )["SCM_Cement_Share"]
-            .mean()
-            .sort_values(
-                "SCM_Cement_Share"
-            )
-        )
-
-        # Convert fraction to percentage if required
         if (
-            not d.empty
-            and d["SCM_Cement_Share"].max() <= 1.5
+            not scm_plot.empty
+            and "SCM_Type" in scm_plot.columns
+            and "SCM_Cement_Share" in scm_plot.columns
         ):
 
-            d["SCM_Cement_Share"] = (
-                d["SCM_Cement_Share"] * 100
+            d = scm_plot.dropna(
+                subset=[
+                    "SCM_Type",
+                    "SCM_Cement_Share"
+                ]
+            ).copy()
+
+            d = (
+                d.groupby(
+                    "SCM_Type",
+                    as_index=False
+                )["SCM_Cement_Share"]
+                .mean()
+                .sort_values(
+                    "SCM_Cement_Share"
+                )
             )
 
-        fig = px.bar(
-            d,
-            x="SCM_Cement_Share",
-            y="SCM_Type",
-            orientation="h",
-            text="SCM_Cement_Share",
-            color_discrete_sequence=[
-                D.BLUE
-            ]
-        )
+            # Convert fractions to percentages if necessary
+            if (
+                not d.empty
+                and d["SCM_Cement_Share"].max() <= 1.5
+            ):
 
-        fig.update_traces(
-            texttemplate="%{text:.1f}%"
-        )
+                d["SCM_Cement_Share"] = (
+                    d["SCM_Cement_Share"] * 100
+                )
 
-        fig.update_layout(
-            **PLOT,
-            height=460,
-            xaxis_title="Average SCM share (%)",
-            yaxis_title="SCM type"
-        )
+            fig = px.bar(
+                d,
+                x="SCM_Cement_Share",
+                y="SCM_Type",
+                orientation="h",
+                text="SCM_Cement_Share",
+                color_discrete_sequence=[
+                    D.BLUE
+                ]
+            )
 
-        st.plotly_chart(
-            fig,
-            use_container_width=True
-        )
+            fig.update_traces(
+                texttemplate="%{text:.1f}%"
+            )
+
+            fig.update_layout(
+                **PLOT,
+                height=460,
+                xaxis_title="Average SCM share (%)",
+                yaxis_title="SCM type"
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+        else:
+
+            st.info(
+                "SCM share data are not available."
+            )
 
 
     # ======================================================================= #
-    # CLINKER FACTOR VS SCM SHARE
+    # CLINKER FACTOR VS SCM
     # ======================================================================= #
 
     section(
         "Clinker factor vs. supplementary cementitious materials",
-        "Plant-wise relationship between clinker content and total SCM share in cement"
-    )
-
-    master_plot = plant_master.copy()
-    scm_scatter = scm_plot.copy()
-
-    master_plot.columns = (
-        master_plot.columns
-        .astype(str)
-        .str.strip()
-    )
-
-    scm_scatter.columns = (
-        scm_scatter.columns
-        .astype(str)
-        .str.strip()
+        "Plant-wise relationship between clinker content and SCM share in cement"
     )
 
 
     # ----------------------------------------------------------------------- #
-    # Find plant identifier in Plant Master
+    # Load dedicated SCM VS CF worksheet
     # ----------------------------------------------------------------------- #
 
-    plant_key_candidates = [
-        "Abbreviation",
-        "Code",
-        "Plant",
-        "Plant_Name",
-        "Plant Name"
-    ]
-
-    master_key = next(
-        (
-            c for c in plant_key_candidates
-            if c in master_plot.columns
-        ),
-        None
+    scm_cf_df = find_sheet_case_insensitive(
+        cleaned_sheets,
+        "SCM VS CF"
     )
 
 
-    # ----------------------------------------------------------------------- #
-    # Find plant identifier in SCM data
-    # ----------------------------------------------------------------------- #
-
-    scm_key = next(
-        (
-            c for c in plant_key_candidates
-            if c in scm_scatter.columns
-        ),
-        None
-    )
-
-
-    # ----------------------------------------------------------------------- #
-    # Check required columns
-    # ----------------------------------------------------------------------- #
-
-    required_columns_available = (
-        master_key is not None
-        and scm_key is not None
-        and "Clinker factor" in master_plot.columns
-        and "SCM_Cement_Share" in scm_scatter.columns
-    )
-
-
-    if not required_columns_available:
+    if scm_cf_df.empty:
 
         st.warning(
-            "The Clinker Factor vs SCM graph could not be generated "
-            "because one or more required columns are missing. "
-            "Required fields are a plant identifier, 'Clinker factor' "
-            "and 'SCM_Cement_Share'."
+            "The 'SCM VS CF' worksheet could not be found in the cleaned "
+            "workbook. Please check that the worksheet exists and contains "
+            "the columns Plant, SCM and CF."
         )
 
     else:
 
         # ------------------------------------------------------------------- #
-        # Standardise plant identifiers
+        # Clean column names
         # ------------------------------------------------------------------- #
 
-        master_plot["_plant_key"] = (
-            master_plot[master_key]
+        scm_cf_df.columns = (
+            scm_cf_df.columns
             .astype(str)
             .str.strip()
-            .str.upper()
-        )
-
-        scm_scatter["_plant_key"] = (
-            scm_scatter[scm_key]
-            .astype(str)
-            .str.strip()
-            .str.upper()
         )
 
 
         # ------------------------------------------------------------------- #
-        # Clean clinker factor
+        # Check required columns
         # ------------------------------------------------------------------- #
 
-        master_plot["Clinker factor"] = (
-            D.clean_numeric_column(
-                master_plot["Clinker factor"]
-            )
-        )
+        required_cols = [
+            "Plant",
+            "SCM",
+            "CF"
+        ]
+
+        missing_cols = [
+            col
+            for col in required_cols
+            if col not in scm_cf_df.columns
+        ]
 
 
-        # ------------------------------------------------------------------- #
-        # Clean SCM share
-        # ------------------------------------------------------------------- #
+        if missing_cols:
 
-        scm_scatter["SCM_Cement_Share"] = (
-            D.clean_numeric_column(
-                scm_scatter["SCM_Cement_Share"]
-            )
-        )
-
-        scm_scatter = scm_scatter.dropna(
-            subset=[
-                "_plant_key",
-                "SCM_Cement_Share"
-            ]
-        )
-
-
-        # ------------------------------------------------------------------- #
-        # Convert clinker factor to %
-        #
-        # 0.72 --> 72
-        # 72   --> 72
-        # ------------------------------------------------------------------- #
-
-        master_plot["Clinker_factor_pct"] = (
-            master_plot["Clinker factor"]
-        )
-
-        valid_cf = (
-            master_plot["Clinker_factor_pct"]
-            .dropna()
-        )
-
-        if (
-            not valid_cf.empty
-            and valid_cf.max() <= 1.5
-        ):
-
-            master_plot["Clinker_factor_pct"] = (
-                master_plot["Clinker_factor_pct"] * 100
+            st.warning(
+                "The 'SCM VS CF' worksheet was found, but these required "
+                "columns are missing: "
+                + ", ".join(missing_cols)
+                + ". Expected columns: Plant, SCM, CF."
             )
 
 
-        # ------------------------------------------------------------------- #
-        # Convert SCM share to %
-        #
-        # 0.15 --> 15
-        # 15   --> 15
-        # ------------------------------------------------------------------- #
+        else:
 
-        valid_scm = (
-            scm_scatter["SCM_Cement_Share"]
-            .dropna()
-        )
+            # --------------------------------------------------------------- #
+            # Select required fields
+            # --------------------------------------------------------------- #
 
-        if (
-            not valid_scm.empty
-            and valid_scm.max() <= 1.5
-        ):
-
-            scm_scatter["SCM_Cement_Share"] = (
-                scm_scatter["SCM_Cement_Share"] * 100
-            )
-
-
-        # ------------------------------------------------------------------- #
-        # Calculate TOTAL SCM share by plant
-        #
-        # Example:
-        #
-        # Fly Ash = 10%
-        # Slag    = 5%
-        #
-        # Total SCM share = 15%
-        # ------------------------------------------------------------------- #
-
-        scm_by_plant = (
-            scm_scatter
-            .groupby(
-                "_plant_key",
-                as_index=False
-            )["SCM_Cement_Share"]
-            .sum()
-            .rename(
-                columns={
-                    "SCM_Cement_Share":
-                        "Total SCM share (%)"
-                }
-            )
-        )
-
-
-        # ------------------------------------------------------------------- #
-        # One clinker factor value per plant
-        # ------------------------------------------------------------------- #
-
-        master_by_plant = (
-            master_plot[
+            plot_df = scm_cf_df[
                 [
-                    "_plant_key",
-                    "Clinker_factor_pct"
+                    "Plant",
+                    "SCM",
+                    "CF"
                 ]
-            ]
-            .drop_duplicates(
-                subset=["_plant_key"]
+            ].copy()
+
+
+            # --------------------------------------------------------------- #
+            # Clean plant names
+            # --------------------------------------------------------------- #
+
+            plot_df["Plant"] = (
+                plot_df["Plant"]
+                .astype(str)
+                .str.strip()
             )
-        )
 
 
-        # ------------------------------------------------------------------- #
-        # Merge clinker factor + SCM share
-        # ------------------------------------------------------------------- #
-
-        scatter_df = master_by_plant.merge(
-            scm_by_plant,
-            on="_plant_key",
-            how="inner"
-        )
-
-
-        # ------------------------------------------------------------------- #
-        # Remove missing values
-        # ------------------------------------------------------------------- #
-
-        scatter_df = scatter_df.dropna(
-            subset=[
-                "Clinker_factor_pct",
-                "Total SCM share (%)"
-            ]
-        ).copy()
+            # Remove blank plant names
+            plot_df = plot_df[
+                ~plot_df["Plant"].isin(
+                    [
+                        "",
+                        "nan",
+                        "NaN",
+                        "None"
+                    ]
+                )
+            ].copy()
 
 
-        # ------------------------------------------------------------------- #
-        # Apply plant selection from sidebar
-        # ------------------------------------------------------------------- #
+            # --------------------------------------------------------------- #
+            # Clean numeric values
+            # --------------------------------------------------------------- #
 
-        selected_keys = set()
+            plot_df["SCM"] = (
+                D.clean_numeric_column(
+                    plot_df["SCM"]
+                )
+            )
 
-        if "Code" in P.columns:
+            plot_df["CF"] = (
+                D.clean_numeric_column(
+                    plot_df["CF"]
+                )
+            )
 
-            selected_keys = set(
-                P["Code"]
+
+            # --------------------------------------------------------------- #
+            # Remove incomplete observations
+            # --------------------------------------------------------------- #
+
+            plot_df = plot_df.dropna(
+                subset=[
+                    "SCM",
+                    "CF"
+                ]
+            ).copy()
+
+
+            # --------------------------------------------------------------- #
+            # Convert fraction values to percentage values if required
+            #
+            # Your current workbook already contains values like:
+            #
+            # SCM = 62.38
+            # CF  = 61.52
+            #
+            # Therefore no conversion will occur for the current workbook.
+            # --------------------------------------------------------------- #
+
+            if (
+                not plot_df.empty
+                and plot_df["SCM"].max() <= 1.5
+            ):
+
+                plot_df["SCM"] = (
+                    plot_df["SCM"] * 100
+                )
+
+
+            if (
+                not plot_df.empty
+                and plot_df["CF"].max() <= 1.5
+            ):
+
+                plot_df["CF"] = (
+                    plot_df["CF"] * 100
+                )
+
+
+            # --------------------------------------------------------------- #
+            # Apply sidebar plant filter where possible
+            # --------------------------------------------------------------- #
+
+            filtered_plot_df = plot_df.copy()
+
+
+            selected_codes = set(
+                plants.loc[
+                    plants["Code"].isin(sel),
+                    "Code"
+                ]
                 .dropna()
                 .astype(str)
                 .str.strip()
@@ -2216,344 +2441,326 @@ with t_materials:
             )
 
 
-        if selected_keys:
+            if selected_codes:
 
-            filtered_df = scatter_df[
-                scatter_df["_plant_key"].isin(
-                    selected_keys
-                )
-            ].copy()
-
-            # Fallback if plant identifiers in the
-            # cleaned workbook do not match dashboard codes.
-            if filtered_df.empty:
-                filtered_df = scatter_df.copy()
-
-        else:
-
-            filtered_df = scatter_df.copy()
+                candidate_df = plot_df[
+                    plot_df["Plant"]
+                    .astype(str)
+                    .str.strip()
+                    .str.upper()
+                    .isin(
+                        selected_codes
+                    )
+                ].copy()
 
 
-        # ------------------------------------------------------------------- #
-        # Create display plant names
-        # ------------------------------------------------------------------- #
+                # If matching succeeds, use the selected plants.
+                # Otherwise retain the complete SCM VS CF dataset.
+                if not candidate_df.empty:
 
-        if master_key == "Abbreviation":
-
-            display_map = (
-                master_plot[
-                    [
-                        "_plant_key",
-                        "Abbreviation"
-                    ]
-                ]
-                .drop_duplicates(
-                    "_plant_key"
-                )
-                .set_index("_plant_key")[
-                    "Abbreviation"
-                ]
-                .to_dict()
-            )
-
-        else:
-
-            display_map = (
-                master_plot[
-                    [
-                        "_plant_key",
-                        master_key
-                    ]
-                ]
-                .drop_duplicates(
-                    "_plant_key"
-                )
-                .set_index("_plant_key")[
-                    master_key
-                ]
-                .to_dict()
-            )
-
-
-        filtered_df["Plant"] = (
-            filtered_df["_plant_key"]
-            .map(display_map)
-        )
-
-
-        # ------------------------------------------------------------------- #
-        # Confidential display
-        # ------------------------------------------------------------------- #
-
-        if confidential:
-
-            code_to_id = dict(
-                zip(
-                    plants["Code"],
-                    plants["ID"]
-                )
-            )
-
-            filtered_df["Plant_Display"] = (
-                filtered_df["Plant"]
-                .astype(str)
-            )
-
-            # First try to map through the dashboard's plant codes
-            for idx in filtered_df.index:
-
-                current_label = str(
-                    filtered_df.loc[idx, "Plant"]
-                ).strip()
-
-                if current_label in code_to_id:
-
-                    filtered_df.loc[
-                        idx,
-                        "Plant_Display"
-                    ] = code_to_id[
-                        current_label
-                    ]
-
-
-            # For anything still unmatched, use anonymous labels
-            existing_values = set(
-                code_to_id.values()
-            )
-
-            unmatched_indices = []
-
-            for idx in filtered_df.index:
-
-                if (
-                    filtered_df.loc[
-                        idx,
-                        "Plant_Display"
-                    ]
-                    not in existing_values
-                ):
-                    unmatched_indices.append(idx)
-
-            for counter, idx in enumerate(
-                unmatched_indices,
-                start=1
-            ):
-
-                filtered_df.loc[
-                    idx,
-                    "Plant_Display"
-                ] = f"P{counter:02d}"
-
-        else:
-
-            filtered_df["Plant_Display"] = (
-                filtered_df["Plant"]
-                .astype(str)
-            )
-
-
-        # ------------------------------------------------------------------- #
-        # Plot
-        # ------------------------------------------------------------------- #
-
-        if filtered_df.empty:
-
-            st.info(
-                "No matching plant-level SCM and "
-                "clinker-factor data are available "
-                "for the selected plants."
-            )
-
-        else:
-
-            st.caption(
-                f"{len(filtered_df)} plant(s) with both "
-                "clinker factor and SCM share data."
-            )
+                    filtered_plot_df = candidate_df
 
 
             # --------------------------------------------------------------- #
-            # Scatter plot
+            # Create display names
             # --------------------------------------------------------------- #
 
-            fig = px.scatter(
-                filtered_df,
-                x="Clinker_factor_pct",
-                y="Total SCM share (%)",
-                text="Plant_Display",
-                size="Total SCM share (%)",
-                hover_name="Plant_Display",
-                hover_data={
-                    "Clinker_factor_pct": ":.1f",
-                    "Total SCM share (%)": ":.1f",
-                    "_plant_key": False,
-                    "Plant": False
-                },
-                size_max=24
-            )
+            if confidential:
+
+                code_to_anon = {}
+
+                for _, row in plants.iterrows():
+
+                    code = str(
+                        row["Code"]
+                    ).strip().upper()
+
+                    anon = row.get(
+                        "AnonID",
+                        None
+                    )
+
+                    if pd.notna(anon):
+
+                        code_to_anon[
+                            code
+                        ] = str(anon)
 
 
-            fig.update_traces(
-                marker=dict(
-                    line=dict(
-                        width=1,
-                        color="white"
+                filtered_plot_df[
+                    "Display_Plant"
+                ] = (
+                    filtered_plot_df["Plant"]
+                    .astype(str)
+                    .str.strip()
+                    .str.upper()
+                    .map(code_to_anon)
+                )
+
+
+                # Assign anonymous names where direct matching
+                # is not possible.
+                counter = 1
+
+                for idx in filtered_plot_df.index:
+
+                    current = (
+                        filtered_plot_df.loc[
+                            idx,
+                            "Display_Plant"
+                        ]
+                    )
+
+                    if pd.isna(current):
+
+                        filtered_plot_df.loc[
+                            idx,
+                            "Display_Plant"
+                        ] = f"P{counter:02d}"
+
+                        counter += 1
+
+            else:
+
+                filtered_plot_df[
+                    "Display_Plant"
+                ] = (
+                    filtered_plot_df["Plant"]
+                    .astype(str)
+                    .str.strip()
+                )
+
+
+            # --------------------------------------------------------------- #
+            # Generate graph
+            # --------------------------------------------------------------- #
+
+            if filtered_plot_df.empty:
+
+                st.info(
+                    "No valid SCM and clinker-factor records were found "
+                    "in the 'SCM VS CF' worksheet."
+                )
+
+            else:
+
+                st.caption(
+                    f"{len(filtered_plot_df)} plant(s) included in the graph."
+                )
+
+
+                # ----------------------------------------------------------- #
+                # Scatter graph
+                # ----------------------------------------------------------- #
+
+                fig = px.scatter(
+                    filtered_plot_df,
+                    x="CF",
+                    y="SCM",
+                    text="Display_Plant",
+                    hover_name="Display_Plant",
+                    size="SCM",
+                    size_max=28
+                )
+
+
+                fig.update_traces(
+                    marker=dict(
+                        size=12,
+                        opacity=0.85,
+                        line=dict(
+                            width=1,
+                            color="white"
+                        )
                     ),
-                    opacity=0.85
-                ),
-                textposition="top center"
-            )
-
-
-            # --------------------------------------------------------------- #
-            # Add trendline without statsmodels
-            # --------------------------------------------------------------- #
-
-            if len(filtered_df) >= 2:
-
-                x = (
-                    filtered_df[
-                        "Clinker_factor_pct"
-                    ]
-                    .astype(float)
-                    .values
+                    textposition="top center"
                 )
 
-                y = (
-                    filtered_df[
-                        "Total SCM share (%)"
-                    ]
-                    .astype(float)
-                    .values
-                )
 
-                valid = (
-                    np.isfinite(x)
-                    & np.isfinite(y)
-                )
+                # ----------------------------------------------------------- #
+                # Add linear trendline
+                # ----------------------------------------------------------- #
 
-                x = x[valid]
-                y = y[valid]
+                if len(filtered_plot_df) >= 2:
 
-                if (
-                    len(x) >= 2
-                    and np.ptp(x) > 0
-                ):
-
-                    slope, intercept = np.polyfit(
-                        x,
-                        y,
-                        1
+                    x = (
+                        filtered_plot_df["CF"]
+                        .astype(float)
+                        .to_numpy()
                     )
 
-                    x_line = np.linspace(
-                        x.min(),
-                        x.max(),
-                        100
+                    y = (
+                        filtered_plot_df["SCM"]
+                        .astype(float)
+                        .to_numpy()
                     )
 
-                    y_line = (
-                        slope * x_line
-                        + intercept
+                    valid = (
+                        np.isfinite(x)
+                        & np.isfinite(y)
                     )
 
-                    fig.add_trace(
-                        go.Scatter(
-                            x=x_line,
-                            y=y_line,
-                            mode="lines",
-                            name="Trendline",
-                            line=dict(
-                                dash="dash",
-                                width=2
+                    x = x[valid]
+                    y = y[valid]
+
+
+                    if (
+                        len(x) >= 2
+                        and np.ptp(x) > 0
+                    ):
+
+                        slope, intercept = (
+                            np.polyfit(
+                                x,
+                                y,
+                                1
+                            )
+                        )
+
+
+                        x_line = np.linspace(
+                            x.min(),
+                            x.max(),
+                            100
+                        )
+
+
+                        y_line = (
+                            slope * x_line
+                            + intercept
+                        )
+
+
+                        fig.add_trace(
+                            go.Scatter(
+                                x=x_line,
+                                y=y_line,
+                                mode="lines",
+                                name="Trendline",
+                                line=dict(
+                                    dash="dash",
+                                    width=2
+                                ),
+                                hoverinfo="skip"
+                            )
+                        )
+
+
+                # ----------------------------------------------------------- #
+                # Axis range
+                # ----------------------------------------------------------- #
+
+                x_min = filtered_plot_df[
+                    "CF"
+                ].min()
+
+                x_max = filtered_plot_df[
+                    "CF"
+                ].max()
+
+                y_min = filtered_plot_df[
+                    "SCM"
+                ].min()
+
+                y_max = filtered_plot_df[
+                    "SCM"
+                ].max()
+
+
+                # ----------------------------------------------------------- #
+                # Graph formatting
+                # ----------------------------------------------------------- #
+
+                fig.update_layout(
+                    **PLOT,
+                    height=520,
+
+                    xaxis=dict(
+                        title="Clinker factor (%)",
+                        ticksuffix="%",
+                        range=[
+                            max(
+                                0,
+                                x_min - 5
                             ),
-                            hoverinfo="skip"
-                        )
+                            min(
+                                100,
+                                x_max + 5
+                            )
+                        ]
+                    ),
+
+                    yaxis=dict(
+                        title="SCM share (%)",
+                        ticksuffix="%",
+                        range=[
+                            max(
+                                0,
+                                y_min - 5
+                            ),
+                            min(
+                                100,
+                                y_max + 5
+                            )
+                        ]
+                    ),
+
+                    legend=dict(
+                        orientation="h",
+                        y=1.08,
+                        x=0
                     )
-
-
-            # --------------------------------------------------------------- #
-            # Format chart
-            # --------------------------------------------------------------- #
-
-            x_min = filtered_df[
-                "Clinker_factor_pct"
-            ].min()
-
-            x_max = filtered_df[
-                "Clinker_factor_pct"
-            ].max()
-
-            fig.update_layout(
-                **PLOT,
-                height=520,
-                xaxis=dict(
-                    title="Clinker factor (%)",
-                    ticksuffix="%",
-                    range=[
-                        max(
-                            0,
-                            x_min - 3
-                        ),
-                        min(
-                            100,
-                            x_max + 3
-                        )
-                    ]
-                ),
-                yaxis=dict(
-                    title="Total SCM share in cement (%)",
-                    ticksuffix="%",
-                    rangemode="tozero"
-                ),
-                legend=dict(
-                    orientation="h",
-                    y=1.08,
-                    x=0
                 )
-            )
 
 
-            st.plotly_chart(
-                fig,
-                use_container_width=True
-            )
+                st.plotly_chart(
+                    fig,
+                    use_container_width=True
+                )
 
 
-            # --------------------------------------------------------------- #
-            # Supporting table
-            # --------------------------------------------------------------- #
+                # ----------------------------------------------------------- #
+                # Supporting table
+                # ----------------------------------------------------------- #
 
-            display_table = filtered_df[
-                [
-                    "Plant_Display",
-                    "Clinker_factor_pct",
-                    "Total SCM share (%)"
-                ]
-            ].copy()
+                display_table = filtered_plot_df[
+                    [
+                        "Display_Plant",
+                        "SCM",
+                        "CF"
+                    ]
+                ].copy()
 
-            display_table = display_table.rename(
-                columns={
-                    "Plant_Display": "Plant",
-                    "Clinker_factor_pct":
-                        "Clinker factor (%)"
-                }
-            )
 
-            display_table = display_table.sort_values(
-                "Clinker factor (%)"
-            )
-
-            st.dataframe(
-                display_table.style.format(
-                    {
-                        "Clinker factor (%)": "{:.1f}%",
-                        "Total SCM share (%)": "{:.1f}%"
+                display_table = display_table.rename(
+                    columns={
+                        "Display_Plant": "Plant",
+                        "SCM": "SCM (%)",
+                        "CF": "Clinker factor (%)"
                     }
-                ),
-                use_container_width=True,
-                hide_index=True
-            )
+                )
+
+
+                display_table = display_table.sort_values(
+                    "Clinker factor (%)"
+                )
+
+
+                # IMPORTANT:
+                # SCM and CF already contain percentage values such as
+                # 62.38, not fractions such as 0.6238.
+                #
+                # Therefore we use {:.2f}, NOT {:.2%}.
+                st.dataframe(
+                    display_table.style.format(
+                        {
+                            "SCM (%)": "{:.2f}",
+                            "Clinker factor (%)": "{:.2f}"
+                        }
+                    ),
+                    use_container_width=True,
+                    hide_index=True
+                )
 
 
     # ======================================================================= #
@@ -2565,14 +2772,17 @@ with t_materials:
         "2022-23 to 2024-25"
     )
 
+
     for col in [
         "ARM_quantity_2022_23",
         "ARM_quantity_2023_24",
         "ARM_quantity_2024_25"
     ]:
 
-        arm_df[col] = D.clean_numeric_column(
-            arm_df[col]
+        arm_df[col] = (
+            D.clean_numeric_column(
+                arm_df[col]
+            )
         )
 
 
@@ -2591,19 +2801,24 @@ with t_materials:
     ).dropna()
 
 
-    arm_long["Year"] = arm_long["Year"].replace(
-        {
-            "ARM_quantity_2022_23": "2022-23",
-            "ARM_quantity_2023_24": "2023-24",
-            "ARM_quantity_2024_25": "2024-25"
-        }
+    arm_long["Year"] = (
+        arm_long["Year"].replace(
+            {
+                "ARM_quantity_2022_23": "2022-23",
+                "ARM_quantity_2023_24": "2023-24",
+                "ARM_quantity_2024_25": "2024-25"
+            }
+        )
     )
 
 
     d = (
         arm_long
         .groupby(
-            ["Year", "ARM"],
+            [
+                "Year",
+                "ARM"
+            ],
             as_index=False
         )["Quantity"]
         .sum()
@@ -2645,19 +2860,27 @@ with t_whr:
         "Technology, capacity and annual generation"
     )
 
-    whr_df["WHR_Technology_Capacity"] = (
-        D.clean_numeric_column(
-            whr_df["WHR_Technology_Capacity"]
-        )
+
+    whr_df[
+        "WHR_Technology_Capacity"
+    ] = D.clean_numeric_column(
+        whr_df[
+            "WHR_Technology_Capacity"
+        ]
     )
 
-    whr_df["WHR_Annual_Generation"] = (
-        D.clean_numeric_column(
-            whr_df["WHR_Annual_Generation"]
-        )
+
+    whr_df[
+        "WHR_Annual_Generation"
+    ] = D.clean_numeric_column(
+        whr_df[
+            "WHR_Annual_Generation"
+        ]
     )
+
 
     cL, cR = st.columns(2)
+
 
     with cL:
 
@@ -2706,6 +2929,7 @@ with t_whr:
             fig,
             use_container_width=True
         )
+
 
     with cR:
 
@@ -2771,6 +2995,7 @@ with t_co2:
         "Emission sources and product-level CO₂ intensity"
     )
 
+
     co2_df[
         "CO2_emissions_quantity"
     ] = D.clean_numeric_column(
@@ -2778,6 +3003,7 @@ with t_co2:
             "CO2_emissions_quantity"
         ]
     )
+
 
     low_carbon_df[
         "low_carbon_Product_Estimated_CO2"
@@ -2787,7 +3013,9 @@ with t_co2:
         ]
     )
 
+
     cL, cR = st.columns(2)
+
 
     with cL:
 
@@ -2840,6 +3068,7 @@ with t_co2:
             fig,
             use_container_width=True
         )
+
 
     with cR:
 
@@ -2901,6 +3130,7 @@ with t_cost:
         "Cost by technology where available"
     )
 
+
     decarb_df[
         "decarbonization_technology_Cost"
     ] = D.clean_numeric_column(
@@ -2909,12 +3139,14 @@ with t_cost:
         ]
     )
 
+
     d = decarb_df.dropna(
         subset=[
             "decarbonization_technology",
             "decarbonization_technology_Cost"
         ]
     )
+
 
     d = (
         d.groupby(
@@ -2927,6 +3159,7 @@ with t_cost:
         )
     )
 
+
     fig = px.bar(
         d,
         x="decarbonization_technology_Cost",
@@ -2938,9 +3171,11 @@ with t_cost:
         ]
     )
 
+
     fig.update_traces(
         texttemplate="%{text:,.2f}"
     )
+
 
     fig.update_layout(
         **PLOT,
@@ -2949,10 +3184,12 @@ with t_cost:
         yaxis_title="Technology"
     )
 
+
     st.plotly_chart(
         fig,
         use_container_width=True
     )
+
 
     st.dataframe(
         decarb_df,
@@ -2967,6 +3204,7 @@ with t_cost:
 with t_qual:
 
     cL, cR = st.columns(2)
+
 
     with cL:
 
@@ -2983,22 +3221,30 @@ with t_qual:
             st.markdown(
                 f"""
                 <div class="metric-card"
-                     style="margin-bottom:10px;
-                            border-left:4px solid {D.PRIMARY};">
+                     style="
+                        margin-bottom:10px;
+                        border-left:4px solid {D.PRIMARY};
+                     ">
+
                     <span style="
                         color:{D.PRIMARY};
                         font-weight:800;
-                        font-size:1.1rem;">
+                        font-size:1.1rem;
+                    ">
                         #{i}
                     </span>
+
                     &nbsp;&nbsp;
+
                     <span style="font-weight:600;">
                         {e}
                     </span>
+
                 </div>
                 """,
                 unsafe_allow_html=True
             )
+
 
     with cR:
 
@@ -3015,18 +3261,25 @@ with t_qual:
             st.markdown(
                 f"""
                 <div class="metric-card"
-                     style="margin-bottom:10px;
-                            border-left:4px solid {D.RED};">
+                     style="
+                        margin-bottom:10px;
+                        border-left:4px solid {D.RED};
+                     ">
+
                     <span style="
                         color:{D.RED};
                         font-weight:800;
-                        font-size:1.1rem;">
+                        font-size:1.1rem;
+                    ">
                         #{i}
                     </span>
+
                     &nbsp;&nbsp;
+
                     <span style="font-weight:600;">
                         {b}
                     </span>
+
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -3045,30 +3298,37 @@ with t_edit:
         "or select a row's checkbox and press ⌫ to delete. Then click Save."
     )
 
+
     if confidential:
 
         st.info(
             "🔒 Confidential mode is ON — identifying columns are locked. "
-            "Turn it off in the sidebar to edit names/contacts. "
-            "Numbers and readiness stay editable, and existing contact data "
-            "is preserved on save."
+            "Turn it off in the sidebar to edit names/contacts. Numbers and "
+            "readiness stay editable, and existing contact data is preserved "
+            "on save."
         )
+
 
     edf = S.to_editor_df(
         records
     )
+
 
     conf_cols = [
         S.EDIT_LABELS[k]
         for k in D.CONFIDENTIAL_FIELDS
     ]
 
+
     if confidential:
 
         for c in conf_cols:
+
             edf[c] = "🔒"
 
+
     colcfg = {}
+
 
     for k in D.READINESS_KEYS:
 
@@ -3106,7 +3366,11 @@ with t_edit:
         use_container_width=True,
         height=460,
         column_config=colcfg,
-        disabled=conf_cols if confidential else [],
+        disabled=(
+            conf_cols
+            if confidential
+            else []
+        ),
         key="editor"
     )
 
@@ -3128,12 +3392,14 @@ with t_edit:
                 edited
             )
 
+
             if confidential:
 
                 prev = {
                     r["code"]: r
                     for r in records
                 }
+
 
                 for nr in new_recs:
 
@@ -3149,6 +3415,7 @@ with t_edit:
                                     ""
                                 )
                             )
+
 
             st.session_state.records = new_recs
 
@@ -3200,6 +3467,7 @@ with t_edit:
             label_visibility="collapsed"
         )
 
+
         if up is not None:
 
             try:
@@ -3243,7 +3511,9 @@ with t_raw:
         )
     )
 
+
     raw = D.load_raw_sheets()
+
 
     secrets = (
         S.secret_values(records)
@@ -3251,13 +3521,16 @@ with t_raw:
         else set()
     )
 
+
     sheet = st.radio(
         "Sheet",
         list(raw.keys()),
         horizontal=True
     )
 
+
     df = raw[sheet]
+
 
     if confidential:
 
@@ -3267,11 +3540,13 @@ with t_raw:
             secrets
         )
 
+
     st.caption(
         f"`{sheet}` — "
         f"{df.shape[0]} rows × "
         f"{df.shape[1]} columns"
     )
+
 
     disp = (
         df.astype(object)
@@ -3282,16 +3557,19 @@ with t_raw:
         .astype(str)
     )
 
+
     disp.columns = [
         str(c)
         for c in disp.columns
     ]
+
 
     st.dataframe(
         disp,
         use_container_width=True,
         height=520
     )
+
 
     st.download_button(
         "⬇️ Download this sheet as CSV",
